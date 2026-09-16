@@ -1,32 +1,65 @@
-#!/usr/bin/env bash
-set -euo pipefail
+#!/usr/bin/env python3
+"""Evaluate Gemma-4-26B-A4B-IT on AIME2026."""
 
-# Report baseline: vLLM 2cf0a69 + vllm-ascend 43f69a69.
-export PYTHONPATH="/home/yzl/vllm:/home/yzl/vllm-ascend:${PYTHONPATH:-}"
-export ASCEND_RT_VISIBLE_DEVICES=0,1,2,3
-export VLLM_USE_V2_MODEL_RUNNER=1
-export VLLM_ENGINE_READY_TIMEOUT_S=3600
-export TASK_QUEUE_ENABLE=1
-export CPU_AFFINITY_CONF=1
-export HCCL_OP_EXPANSION_MODE=AIV
-export PYTORCH_NPU_ALLOC_CONF=expandable_segments:True
+from datetime import datetime
+from zoneinfo import ZoneInfo
 
-LOG_DIR=/home/yzl/precision/tp4/gemma-4-31b-it/server
-mkdir -p "$LOG_DIR"
+import requests
+from evalscope import TaskConfig, run_task
+from evalscope.constants import EvalType
 
-exec vllm serve /home/weight/gemma-4-31B-it \
-  --host 0.0.0.0 \
-  --port 8009 \
-  --served-model-name gemma-4-31b-it \
-  --tensor-parallel-size 4 \
-  --gpu-memory-utilization 0.8 \
-  --max-model-len 16384 \
-  --max-num-seqs 16 \
-  --max-num-batched-tokens 4096 \
-  --dtype bfloat16 \
-  --async-scheduling \
-  --no-enable-prefix-caching \
-  --compilation-config '{"cudagraph_mode":"FULL_DECODE_ONLY"}' \
-  --additional-config '{"enable_cpu_binding":true}' \
-  --trust-remote-code \
-  2>&1 | tee "$LOG_DIR/server.log"
+
+_old_request = requests.Session.request
+
+
+def _request_no_verify(self, method, url, **kwargs):
+    kwargs["verify"] = False
+    return _old_request(self, method, url, **kwargs)
+
+
+requests.Session.request = _request_no_verify
+
+MODEL = "gemma-4-26b-a4b-it"
+API_URL = "http://127.0.0.1:8009/v1"
+TP_CONFIG = "tp4"
+DATASET_DIR = "/home/yzl/datasets/aime26"
+
+timestamp = datetime.now(ZoneInfo("Asia/Shanghai")).strftime("%Y%m%d_%H%M%S")
+work_dir = (
+    f"/home/yzl/precision/{TP_CONFIG}/{MODEL}/aime26/"
+    f"{timestamp}_no_thinking_8k"
+)
+
+task_cfg = TaskConfig(
+    model=MODEL,
+    api_url=API_URL,
+    api_key="EMPTY",
+    eval_type=EvalType.OPENAI_API,
+    model_task="text_generation",
+    datasets=["aime26"],
+    dataset_args={
+        "aime26": {
+            "dataset_id": DATASET_DIR,
+        }
+    },
+    dataset_hub="modelscope",
+    eval_batch_size=16,
+    generation_config={
+        "max_tokens": 8192,
+        "temperature": 1.0,
+        "top_p": 0.95,
+        "top_k": 64,
+        "n": 1,
+        "extra_body": {
+            "chat_template_kwargs": {
+                "enable_thinking": False,
+            }
+        },
+    },
+    timeout=60000,
+    stream=True,
+    seed=42,
+    work_dir=work_dir,
+)
+
+run_task(task_cfg=task_cfg)
