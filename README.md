@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Evaluate Gemma-4-26B-A4B-IT on AIME2026."""
+"""Evaluate Gemma-4-31B-IT on GPQA-Diamond with the report baseline."""
 
 from datetime import datetime
 from zoneinfo import ZoneInfo
@@ -9,6 +9,7 @@ from evalscope import TaskConfig, run_task
 from evalscope.constants import EvalType
 
 
+# Only relevant to HTTPS. The local vLLM endpoint uses HTTP.
 _old_request = requests.Session.request
 
 
@@ -19,14 +20,14 @@ def _request_no_verify(self, method, url, **kwargs):
 
 requests.Session.request = _request_no_verify
 
-MODEL = "gemma-4-26b-a4b-it"
+MODEL = "gemma-4-31b-it"
 API_URL = "http://127.0.0.1:8009/v1"
 TP_CONFIG = "tp4"
-DATASET_DIR = "/home/yzl/datasets/aime26"
+DATASET_DIR = "/home/yzl/datasets/gpqa_diamond"
 
 timestamp = datetime.now(ZoneInfo("Asia/Shanghai")).strftime("%Y%m%d_%H%M%S")
 work_dir = (
-    f"/home/yzl/precision/{TP_CONFIG}/{MODEL}/aime26/"
+    f"/home/yzl/precision/{TP_CONFIG}/{MODEL}/gpqa_diamond/"
     f"{timestamp}_no_thinking_8k"
 )
 
@@ -36,9 +37,9 @@ task_cfg = TaskConfig(
     api_key="EMPTY",
     eval_type=EvalType.OPENAI_API,
     model_task="text_generation",
-    datasets=["aime26"],
+    datasets=["gpqa_diamond"],
     dataset_args={
-        "aime26": {
+        "gpqa_diamond": {
             "dataset_id": DATASET_DIR,
         }
     },
